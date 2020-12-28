@@ -5,7 +5,7 @@ date: "2020-12-22"
 output:
   html_document:
     includes:
-      before_body: up_hdr.html
+      before_body: misc_hdr.html
 ---
 
 ```{r setup, include=FALSE}

@@ -1,0 +1,156 @@
+---
+title: "Deaths due to Flu/Pneumonia and COVID in US"
+author: "Tomasz Przechlewski"
+date: "2020-12-22"
+output:
+  html_document:
+    includes:
+      before_body: up_hdr.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data
+
+Data is from National Center for Health Statistics (NCHS) Mortality Surveillance
+available in CSV format at https://www.cdc.gov/flu/weekly/. 
+(URL `https://www.cdc.gov/flu/weekly/weeklyarchives2020-2021/data/NCHSData??csv`where `??` is a week
+number.)
+
+There are 7 variables in CSV file:
+year; week;
+pip (Percent of Deaths Due to Pneumonia and Influenza (P&I));
+pic (Percent of Deaths Due to Pneumonia, Influenza or COVID-19 (PIC));
+expected (Expected);
+threshold (Threshold);
+total (All Deaths);
+pneumonia (Pneumonia Deaths);
+influenza (Influenza Deaths),
+covid19 (COVID-19 Deaths),
+PIC (Pneumonia, Influenza or COVID-19 Deaths (PIC))
+
+```{r, echo=FALSE, warning=F, message=F}
+library("dplyr")
+library("ggplot2")
+library("ggpubr")
+library("scales")
+##
+mainBreaks <- "6 months"
+surl <- "https://www.cdc.gov/flu/weekly/#S2"
+spanV <- 0.5
+```
+
+The R code for reading CSV file is standard:
+
+```{r }
+d <- read.csv("us.pneumonia.csv", sep = ';',  header=T, na.string="NA")
+# wdate column is a string "yyyy/ww"
+d$wdate <- sprintf ("%.4i/%.02i", d$year, d$week)
+first.obs <- first(d$wdate)
+last.obs <- last(d$wdate)
+```
+
+This first week is `r first.obs` and the last is `r last.obs`.
+
+
+Using `year` and `week` we compute date as defined as first day of each week:
+(`%W` is week number of the year):
+
+```{r}
+## Note if insufficient arguments provided to strptime, current date
+## will be returned (ie %Y/%W is insufficent)
+d$date <- strptime(sprintf("%s-%s-01", d$year, d$week), format="%Y-%W-%w")
+```
+
+## Charts
+
+Weekly number of deaths due to Influenza:
+
+```{r, echo=F, warning=F}
+pc1 <- ggplot(d, aes(x= as.Date(date), y=influenza )) +
+ geom_line(aes(), group=1, size=.4, color="steelblue") +
+ ##geom_smooth(method="loess", se=F, span=spanV) +
+ xlab(label="year/month") +
+ ylab(label="deaths/week") +
+ scale_x_date(labels = date_format("%y-%m"), breaks = mainBreaks)+
+ theme(plot.subtitle=element_text(size=8, hjust=0, color="black")) +
+ ggtitle(sprintf("Deaths due to influenza in US (last week: %s)", last.obs), 
+         subtitle=sprintf("Source: %s", surl)) 
+pc1
+```
+
+Weekly number of deaths due to Pneumonia, Influenza or COVID:
+
+```{r, echo=F, warning=F}
+pd1 <- ggplot(d, aes(x = as.Date(date), y=PIC ) ) +
+ geom_line(aes(), group=1, size=.4, color="steelblue") +
+ ##geom_smooth(method="loess", se=F, span=spanV) +
+ xlab(label="year/month") +
+ ylab(label="deaths/week") +
+ scale_x_date(labels = date_format("%y-%m"), breaks = mainBreaks)+
+ theme(plot.subtitle=element_text(size=8, hjust=0, color="black")) +
+ ggtitle(sprintf("Deaths due to pneumonia/influenza/covid in US (last week: %s)", last.obs), subtitle=sprintf("Source: %s", surl)) 
+##
+##ggsave(pc1, file="us_influenza.png", width=10)
+##ggsave(pd1, file="us.pic.png", width=10)
+pd1
+```
+
+The same chart as above, but this time dot-plot with trend and weeks of high level flu 
+highlighted.
+We define flu season as first 12 weeks of each year. To highlight these periods we define
+the following dataframe:
+
+```{r, echo=T, warning=F}
+
+bars <- data.frame(
+   x1=c("2021-01-01", "2020-01-01", "2019-01-01", "2018-01-01", "2017-01-01", "2016-01-01", "2015-01-01", "2014-01-01"), 
+   x2=c("2021-03-01", "2020-03-01", "2019-03-01", "2018-03-01", "2017-03-01", "2016-03-01", "2015-03-01", "2014-03-01"), 
+   y1=c(0, 0, 0, 0, 0, 0, 0, 0), 
+   y2=c(Inf,Inf, Inf, Inf, Inf, Inf, Inf, Inf)
+)
+```
+
+Dots in flu season are drown with different color. To achieve this we define
+column `fs` as follows:
+
+```{r}
+d <- d %>% mutate( fs=case_when(week < 12 ~ "1", TRUE ~ "0"))
+```
+
+Next we add `aes(color=as.factor(fs))` (consult the code in source Rmd file) and `set_color_manual`
+to add legend. The legend is put under title with the declaration
+`theme_update(legend.title=element_text(family="sans", size=8), legend.position="top" )`.
+
+Crucial is `inherit.aes = FALSE` in `geom_rect` otherwise R complains about errors.
+
+```{r, echo=F, warning=F, message=F}
+#theme_update(legend.title=element_text(family="sans", size=8), legend.position="top" )
+
+pe1 <- ggplot(d, aes(x = as.Date(date), y=PIC)) +
+        geom_point(aes(color=as.factor(fs)), size=.4) +
+        geom_smooth(method="loess", se=F, span=spanV ) +
+        xlab(label="year/month") +
+        ylab(label="deaths/week") +
+        scale_color_manual("Tygodnie/Weeks:", values = c( "1" = "#F8766D", "0" = "#00BFC4" ), 
+                           labels=c("1"="01--12 (sezon grypowy/flu season)", "0" = "13--52/3") ) +
+        scale_x_date(labels = date_format("%y-%m"), breaks = mainBreaks)+
+        theme(plot.subtitle=element_text(size=8, hjust=0, color="black")) +
+        ##theme_nikw() +
+        ## inherit.aes =F bez tego nie działa
+        geom_rect(data=bars, inherit.aes = FALSE,
+                  mapping=aes(xmin=as.Date(x1), 
+                              xmax=as.Date(x2), ymin=y1, ymax=y2), 
+                  fill = "#F8766D", alpha = 0.25) +
+        ggtitle(sprintf("Zgony z powodu zapalenia płuc/grypy/covid19  (USA; ostatni tydzień: %s)", last.obs), 
+          subtitle=sprintf("Deaths due to pneumonia/influenza/covid19 (US; last week  %s)\n Źródło/Source: %s", last.obs, surl)) 
+
+pe1
+##ggsave(pe1, file="us.pic.png", width=8)
+```
+
+In case of errors noticed or with suggestions for improvement please contact 
+tprzechlewski[a_t]gmail.com
+

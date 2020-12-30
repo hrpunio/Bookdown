@@ -1,0 +1,462 @@
+---
+title: "Spożycie mięsa na świecie"
+author: "Tomasz Przechlewski"
+date: 2020-12-31
+output:
+  html_document:
+    includes:
+      before_body: misc_hdr.html
+---
+
+## Wprowadzenie
+
+Dokument w zamierzeniach ma spełniać dwa cele: analizuje
+spożycia mięsa na głowę na świecie ORAZ w trakcie tej analizy pokazuje
+jak wykorzystać do tego system/język R ze szczególnym uwzględnieniem
+pakietów ggplot2/dpyr/tidyr, które zaraz zostaną załadowane:
+
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+options(dplyr.print_max = 1e9)
+## różne globalne opcje i parametry
+minpop <- 5000
+cons.min <- 40.0
+```
+
+## Dane
+
+Dane pochodzą z bazy FAO, która jest cośkolwiek obszerna.
+Punktem startu jest http://www.fao.org/faostat/en/#data (Data/DOMAINS);
+w dziale **Food Balance** jest pozycja **New Food Balances**
+oraz **Food Balances (old methodology and population)**
+Dział New Food Balances (http://www.fao.org/faostat/en/#data/FBS/metadata) 
+obejmuje lata 2018--2014; dział Food Balances
+(http://www.fao.org/faostat/en/#data/FBSH/metadata)
+zaś 2013--1961.  Jak widać zmieniła się metoda ale trudno, na to nie poradzimy :-).
+
+W oknie wyboru danych w panelu **Countries/Regions** wybieramy wszystkie kraje;
+w panelu **Elements** wybieramy **Food supply quantity kg/capita/yr**;
+w panelu **Item/Item aggregated** przełączamy się na zakładkę **Item aggregated**,
+w której wybieramy **Meat Total** oraz **Meat List**;
+W ostatniej zakładce wybieramy wszystkie dostępne lata (**Select All**).
+Pobieram dane (Download Data)
+
+Powyższe wykonujemy dla **New Food Balances** oraz **Food Balances (old methodology and population)**. Każdy plik ma 14 pól: `Domain Code`, `Domain`, `Area Code`, `Area`, `Element Code`, `Element`, `Item Code`, `Item`, `Year Code`, `Year`, `Unit`, `Value`, 
+`Flag`, `Flag Description`. Większość z tego jest zbędna; istotne są pola 4,8,9 oraz 12.
+W systemie linux można to osiągnąć np za pomocą AWK:
+
+```
+awk -F ',' '{print $4 ";" $8 ";" $9 ";" $12}' Plik_O.csv Plik_N.csv > FAOStat_MeatCons.csv
+wc -l FAOStat_MeatCons.csv
+56668
+```
+
+W rezultacie plik `FAOStat_MeatCons.csv` ma 56668 wierszy (pobrany 2020-12-29 dla jasności), każdy wiersz 4 pola: kraj, zmienna
+rok oraz wartość (używamy angielskich nazw bo to mądrzej wygląda: `country`, `item`, `year`
+oraz `value`.)
+
+
+
+
+```{r}
+fbs <- read.csv("FAOStat_MeatCons.csv", sep = ';',  header=T, na.string="NA");
+str(fbs)
+```
+
+```{r}
+fbsx <- fbs %>% spread(item, value, drop=T)
+str(fbsx)
+```
+
+## Spożycie w ostatnim raportowanym roku
+
+Rozpocznijmy analizę od zestawienia krajów ze względu na spożycie mięsa ogółem dla ostatniego
+raportowanego w FAO roku. Ponieważ plik CSV jest typu **long** do ramki `fbs.lst` wybieramy
+wiersze zawierające `Meat` jako wartość kolumny `item` oraz wartość 2016 i więcej w 
+kolumnie `year` (pomijamy raportujących ostatni raz w 2015 i wcześniej). 
+Wiersze są grupowane ze względu na `country`, usuwane są wartości
+brakujące, porządkowane są grupy względem roku. Kolejne polecenie `filter` wypisuje
+ostatni wiersz w każdej grupie:
+
+```{r}
+fbs.last <- fbs %>% filter (year > 2015 & item == 'Meat' ) %>%
+        group_by(country) %>%  drop_na(value) %>% arrange(year) %>%
+        filter(row_number()==n()) %>%  as.data.frame
+str(fbs.last)
+print(fbs.last)
+```
+
+się okazuje, że w bazie jest `r nrow(fbs.last)` krajów; wszystkie zresztą raportowały
+w roku 2018. Policzmy miary 
+
+```{r}
+meat.mean <- mean(fbs.last$value)
+meat.median <- median(fbs.last$value)
+meat.sum <- summary(fbs.last$value)
+str(meat.sum)
+##
+meat.sum["Median"]
+meat.q1 <- meat.sum["1st Qu."]
+meat.q3 <- meat.sum["3rd Qu."]
+meat.max <- meat.sum["Max."]
+meat.min <- meat.sum["Min."]
+```
+
+Średnia wielkość wskaźnika wyniosła `r meat.mean` a mediana `r meat.median`. 
+Pierwszy/trzeci kwartyl to odpowiednio: `r meat.q1` oraz `r meat.q3`. Co by oznaczało, między innymi, że mamy do czynienia ze skośnością prawostronną. 
+Rozkład można przedstawić na histogramie:
+
+```{r}
+bwd <- 10
+p1 <- fbs.last %>%
+  ggplot(aes(x =  value)) +
+  geom_histogram(binwidth = bwd, color = "white", fill = "#9FE367") +
+  scale_y_continuous(name = "Frequency") +
+  scale_x_continuous(breaks=seq(0,max(meat.max, na.rm=T), by=bwd))
+p1
+```
+
+Się okazuje, że rozkład wskaźnika jest bardziej dwumodalny niż prawostronny. 
+Jest grupa krajów
+ze spożyciem 10--30--40 kg/pc oraz druga ze spożyciem 70--80 kg/pc.
+
+## Porównanie spożycia z 2018 ze spożyciem w roku 2000
+
+A jak kształtowało się spożycie mięsa w 2000 roku (czyli około 20 lat temu):
+
+```{r}
+fbs.prev <- fbs %>% filter (year == 2000 & item == 'Meat' ) %>%
+  group_by(country) %>%  drop_na(value) %>% arrange(year) %>%
+  filter(row_number()==n()) %>%  as.data.frame
+str(fbs.prev)
+print(fbs.prev)
+
+meat.prev.mean <- mean(fbs.prev$value)
+meat.prev.median <- median(fbs.prev$value)
+meat.prev.sum <- summary(fbs.prev$value)
+str(meat.prev.sum)
+
+meat.prev.q1 <- meat.prev.sum["1st Qu."]
+meat.prev.q3 <- meat.prev.sum["3rd Qu."]
+meat.prev.max <- meat.sum["Max."]
+meat.prev.min <- meat.prev.sum["Min."]
+
+```
+
+Średnia wielkość wskaźnika wyniosła `r meat.prev.mean` a mediana `r meat.prev.median`. 
+Pierwszy/trzeci kwartyl to odpowiednio: `r meat.prev.q1` oraz `r meat.prev.q3`. 
+Wartości wszystkich miar wzrosły zatem. Przykładowo średnia wzrosła 
+o `r meat.mean - meat.prev.mean` kilograma/pc. Oznacza to wzrost
+o `r sprintf ("%.1f", (meat.mean - meat.prev.mean)/meat.prev.mean * 100)`% w porównaniu 
+do roku 2000.
+
+Rozkład wskaźnika spożycia mięsa w roku 2000 można przedstawić na histogramie:
+
+```{r}
+p2 <- fbs.prev %>%
+  ggplot(aes(x =  value)) +
+  geom_histogram(binwidth = bwd, color = "white", fill = "#9FE367") +
+  scale_y_continuous(name = "Frequency") +
+  scale_x_continuous(breaks=seq(0,max(meat.max, na.rm=T), by=bwd))
+p2
+```
+
+Teraz gdybyśmy chcieli porównać dynamikę spożycia dla poszczególnych krajów to jest
+pewien problem, mianowicie ramka `fbs.last` miała `r nrow(fbs.last)` wierszy
+podczas gdy ramka `fbs.prev` miała `r nrow(fbs.prev)` wierszy. Ramki różnią się wielkością.
+
+```{r}
+## należy użyć factor nie levels
+## bo levels poda także nieużywane wartości czynnika
+countries.last <- factor(fbs.last$country)
+countries.prev <- factor(fbs.prev$country)
+
+bad.countries <- setdiff(countries.last, countries.prev)
+bad.countries
+```
+
+Śmiało możemy pominąć **`r bad.countries`** (Sudańczycy i Serbowie by się nie zgodzili)
+Jednym ze sposobów połączenia jest wykorzystanie `left_join` z pakietu `dpyr`.
+Ramki zostaną połączone, że tak powiem w poziomie w oparciu o wspólną wartość
+kolumny `country` (w obu ramkach jest ta kolumna a wartości w niej są identyfikatorami wierszy). Jak coś nie ma do pary to 
+zostanie pominięte (Sorry Serbio...)
+
+Następnie liczymy różnice pomiędzy wartościami z lat 2018 oraz 2000. 
+Uwaga: `value.x` to nazwa kolumny
+`value` z pierwszej łączonej ramki (czyli z roku 2018; `value.y` to oczywiście `value` z drugiej ramki). Dplyr musiał dopisać `x/y`, bo kolumny `value` też mają identyczne nazwy w obu ramkach.
+
+```{r}
+fbs.2018 <- fbs.last ## kopia na później
+fbs.last <- left_join(fbs.last, fbs.prev, by='country')
+
+fbs.last$diff <- fbs.last$value.x - fbs.last$value.y
+#fbs.last 
+meat.lower <- nrow(fbs.last %>% filter(diff <0))
+meat.hgh <- nrow(fbs.last %>% filter(diff >= 0))
+```
+
+W `r meat.lower` krajach spożycie spadło a w `r meat.hgh` krajach wzrosło. Można
+to bardziej precyzyjnie określić, przykładowow w ilu i jakich krajach spadło o 
+więcej niz 25% a w ilu wzrosło o 25%:
+
+```{r}
+fbs.good.countries <- fbs.last %>% filter(  diff / value.y * 100 < -25)
+
+fbs.last$diffp <- fbs.last$diff / fbs.last$value.y *100
+fbs.bad.countries <- fbs.last %>% filter(  diffp > 25)
+
+#fbs.bad.countries
+#fbs.good.countries
+```
+
+Dokładnie w `r nrow(fbs.good.countries)` spadło o więcej niż 25%, 
+zaś wzrosło o więcej niż 25% w dużo
+większej liczbie krajów bo w `r nrow(fbs.bad.countries)`.
+W jakich można wypisać usuwając znak `#` sprzed nazw ramek i rekompilując
+ten dokument--jak ktoś jest ciekaw to niestety musi się zdobyć na ten wysiłek.
+
+Dla tych co są ciekawi, ale im się nie chce rekompilować wydrukujemy
+pięć krajów z największym spadkiem spożycia oraz 15 z największym 
+wzrostem (bo tych jest stosowanie więcej):
+
+```{r}
+fbs.good.countries <- fbs.last %>% filter( diffp < -25)
+
+head(fbs.good.countries[order(fbs.good.countries$diffp),c(1,4,7,8,9)], n=5)
+head(fbs.bad.countries[order(fbs.bad.countries$diffp, decreasing = T),c(1,4,7,8,9)], n=15)
+## albo (ale to nie do końca to samo):
+tail(fbs.bad.countries[order(fbs.bad.countries$diffp, decreasing = F),c(1,4,7,8,9)], n=15)
+```
+
+Zapis `c(1,4,7,8,9)` określa które kolumny ramki mają być *wybrane*. Niekoniecznie
+przy tym chodzi o wydruk, równie dobrze może chodzić o przypisanie do innej ramki
+(na przykład):
+
+```{r}
+top5 <- head(fbs.good.countries[order(fbs.good.countries$diffp),c(1,4,7,8,9)], n=5)
+str(top5)
+```
+
+Na koniec pokażmy spożycie w latach 2000 oraz 2018 jednocześnie. Można to zrobić
+na wykresie słupkowym, tyle że słupków by musiało być po dwa na kategorię (czyli
+na kraj). Coś takiego określa się jako  **skumulowany wykres słupkowy** jak słupek jest jeden podzielony na 
+podsłupki nazwijmy to, albo **grupowany** jak dla każdej kategorii jest kilka słupków (tutaj byłby dwa)
+
+Osobiście nie znoszę skumulowanego (zresztą on tutaj nie za bardzo się nadaje);
+nie lubię i polecam także grupowanego, zwłaszcza jak kategorii jest 
+więcej niż kilkanaście (a grup więcej niż dwie). 
+Zwykły wykres punktowy moim zdaniem
+jest najlepszy. 
+Jest tylko jeden problem z punktu widzenia że tak powiem technicznego:
+szeroki format danych jest mniej wygodny (value.x/value.y) lepszy byłby
+format długi. Żeby to osiągnąć można użyć `dplyr::bind_rows`:
+
+```{r}
+fbs.all <- bind_rows(fbs.2018, fbs.prev)
+```
+
+Teraz każdy kraj to dwa wiersze a krajów jest 170. Żeby wykres był czytelny
+ograniczę go do 80 krajów o największym spożyciu. W tym celu najpierw
+wyciągam wiersze z roku 2018 (`filter`), potem je sortuję według wartości (`arrange`); wreszcie `slice` *odcina* 80 pierwszych wierszy:
+
+```{r}
+fbs.top.80 <- fbs.all %>% filter(year=='2018') %>% arrange(value) %>% 
+  slice_head(n=80)
+```
+
+Teraz wektor `top.names.80` zawiera nazwy krajów z tej czołowej 80-tki:
+
+```{r}
+top.names.80 <- as.vector(fbs.top.80$country)
+```
+
+Kolejny filtr korzysta z operatora `%in%`, wartością wyrażenia `kolumna %in% wektor`
+jest prawda jeżeli wartość kolumny jest równa jednemu z elementów wektora:
+
+```{r}
+fbs.all <- fbs.all %>% filter (country %in% top.names.80 ) %>% as.data.frame()
+```
+
+Teraz ramka zawiera tylko wartości dla 80 krajów o 
+największym spożyciu (dla dwóch lat). Można przedstawić ją na wykresie:
+
+```{r, fig.height = 10}
+## tylko 80 pierwszych
+p3 <- fbs.all %>%
+  ggplot(aes(x = country )) +
+  geom_point(aes(y = value, colour = as.factor(year) ), size=1) +
+  xlab(label="cc") + ylab(label="n ") + 
+  ggtitle("Spożycie mięsa na głowę w kg 2000/20018", 
+            subtitle="80 krajów o największym spożyciu w roku 2018") +
+  theme(axis.text = element_text(size = 6)) +
+  ##coord_cartesian(ylim = c(0, 8)) +
+  coord_flip()
+p3
+
+```
+
+Wykres pudełkowy
+
+```{r}
+p4 <- ggplot(fbs.all, aes(x=as.factor(year), y=value, fill=as.factor(year))) +
+ geom_boxplot() +
+ ylab("spożycie/pc") +
+ xlab("rok") +
+ ggtitle("Spożycie mięsa na głowę w kg 2000/2018",
+         subtitle="80 krajów o największym spożyciu w roku 2018"
+          ) +
+ theme(legend.position="none")
+p4
+```
+
+
+## Analiza dynamiki
+
+Ponieważ krajów jest aż tak dużo to warto się zastanowić czy wszystkie 
+są różnie interesujące. Można dajmy na to pominąć kraje małe, na przykład
+takie których liczba ludności jest mniejsza niż powiedzmy `r minpop` (tysięcy).
+Tak się dobrze składa że FAO liczy także liczbę ludności na świecie,
+a stosowna baza jest w dziale **Population**.
+
+Jak się ściągnie tą bazę to na przykład można odsiać wszystkie 
+lilipucie kraje. 
+
+No więc po ściągnięciu bazy usunąłem z niej wszystkie zbędne i redundatne pola
+zostawiając: `country`, `pop`, `year`, `value` (gdzie `pop` to zmienna określająca
+zmienną: ogółem, kobiety, mężczyźni, wieś i miasto):
+
+```{r}
+pop <- read.csv("FAOPop.csv", sep = ';',  header=T, na.string="NA");
+str(pop)
+
+levels(pop$pop)
+```
+
+Interesuje nas tylko najbardziej aktualna informacja o liczbie
+ludności zatem:
+
+```{r}
+pop <- pop %>% filter (year > 2015 & pop == 'total' ) %>%
+  group_by(country) %>%  drop_na(value) %>% arrange(year) %>%
+  filter(row_number()==n()) %>%  as.data.frame
+str(pop)
+total.countries <- nrow(pop)
+##print(pop)
+```
+
+BWT łączna liczba ludzi na świecie wg FAO to `r sum(pop$value)` 
+(za `r last(pop$year)`). Jakby więcej niż możnaby oczekiwać wartoby spojrzeć
+czy w danych nie ma błędu (np. oprócz krajów jakieś agregaty 
+typu stowarzyszenia krajów...)
+
+Teraz można połączyć dane o spożyciu i liczbie 
+ludności (wspólna kolumna `country`)
+
+```{r}
+## Tylko mięso ogółem
+fbs <- fbs %>% filter (item=='Meat') %>% as.data.frame()
+
+fbs <- left_join (fbs, pop, by='country')
+str(fbs)
+```
+
+Ile jest krajów o liczbie ludności większej od 5 mln?
+
+```{r}
+fbs500 <- fbs %>% filter (value.y > 5000 ) %>% as.data.frame()
+## ile krajów zostało?
+length(unique(fbs500$country))
+```
+
+Ponieważ `fbs500$country` nie jest ramką nie używamy `nrow` ale `length` (to taka
+uwaga na boku.) Anyway `r length(unique(fbs500$country))` to 
+trochę za dużo, dlatego dodajemy drugi warunek: spożycie 
+nie mniejsze niż `r cons.min` kg/pc:
+
+```{r}
+fbs500 <- fbs %>% filter (value.y > 5000 & value.x > cons.min ) %>% as.data.frame()
+
+str(fbs500)
+cc500 <- length(unique(fbs500$country))
+```
+
+Wynikowa ramka ma `r cc500` krajów. Dużo ale mniej niż było
+(a było `r total.countries`.)
+
+
+Wykreślmy spożycie mięsa ogółem dla wybranych krajów: 
+Poland, Germany, Denmark, United States of America, Australia, New Zealand oraz Japan.
+
+```{r}
+countries <- c("Poland", "Germany", "Denmark", "United States of America",
+               "Australia", "New Zealand", "Japan", "India", "China Hong Kong SAR")
+fbsy <- fbsx %>% filter(country %in% countries) %>% as.data.frame()
+
+ggplot(fbsy, aes(x=as.Date(as.factor(year), format="%Y"), color=country, y = Meat),  ) +
+    ggtitle("Spożycie mięsa (per capita/rok)") +
+    ##
+    geom_point(alpha=.3, size=1.2) +
+    geom_line(size=.4) 
+```
+
+inne zestawienie:
+
+```{r}
+countries <- c("Argentina", "Italy", "China",
+               "Switzerland", "Netherlands", "Viet Nam", "Czechia", "Brazil")
+fbsy <- fbsx %>% filter(country %in% countries) %>% as.data.frame()
+
+ggplot(fbsy, aes(x=as.Date(as.factor(year), format="%Y"), color=country, y = Meat),  ) +
+    ggtitle("Spożycie mięsa (per capita/rok)") +
+    ##
+    geom_point(alpha=.3, size=1.2) +
+    geom_line(size=.4) 
+```
+
+Ładne wykresy, ale zostało `r cc500 - 8 *2` krajów do zwizualizowania. W tym stylu
+dużo roboty. Można użyć czegoś co się nazywa **facets**,
+a implementuje się bajecznie prosto za pomocą `ggplot`. 
+
+```{r, warning=F, message=F}
+spanV <- 0.5
+loessColor <- "steelblue"
+mainColor <- "deeppink"
+
+p6 <- ggplot(fbs500, aes(x=as.Date(as.factor(year.x), format="%Y"), y=value.x)) + 
+ geom_smooth(method="loess", se=F, span=spanV, colour = loessColor) +
+ geom_point(size=.4, color=mainColor, alpha=.5) +
+ facet_wrap( ~ country, scales = "fixed") +
+ xlab(label="") +
+ #scale_x_date( labels = date_format("%m/%d"), breaks = mainBreaks) +
+ ggtitle("Spożycie mięsa", subtitle = sprintf("Źródło: %s",  "FAO"))
+p6
+```
+
+Ciut nieczytelne. Można podzielić panel wykresów na kawałki
+wykorzystując bibliotekę `ggforce::facet_wrap_paginate`. Tutaj
+dzielimy na 5 kawałki po 12 wykresów (bo wiemy że krajów jest 58) 
+ułożonych w prostokąt 3x4 (każdy):
+
+```{r, warning=F, message=F, fig.width=10}
+library("ggforce")
+
+for(i in 1:5){
+ p0 <- ggplot(fbs500, aes(x=as.Date(as.factor(year.x), format="%Y"), y=value.x)) + 
+   geom_smooth(method="loess", se=F, span=spanV, colour = loessColor) +
+   geom_point(size=.4, color=mainColor, alpha=.5) +
+   facet_wrap_paginate( ~ country, ncol=4, nrow=3, page=i, scales = "fixed") +
+   xlab(label="") +
+   #scale_x_date( labels = date_format("%m/%d"), breaks = mainBreaks) +
+   ggtitle("Spożycie mięsa", subtitle = sprintf("Źródło: %s",  "FAO"))
+ print(p0)
+}
+
+```
+
+Zwróćmy uwagę, że każdy wykres ma identyczną skalę co oczywiście ułatwia porównania. 
+Nie zawsze to się da zrobić ale
+w tym przypadku się dało. 
+
+Koniec, wreszcie...

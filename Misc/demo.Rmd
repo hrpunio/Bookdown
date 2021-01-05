@@ -1,0 +1,189 @@
+---
+title: "Demografia (przegląd pojęć)"
+author:
+  - name: "Tomasz Przechlewski"
+    email:  t.plata-przechlewski@psw.kwidzyn.edu.pl
+    affiliation: "Powiślańska Szkoła Wyższa (Kwidzyn/Poland)"
+description: (c) Tomasz Przechlewski / CC-BY license
+date: "1/2021"
+output:
+  html_document:
+    includes:
+      before_body: misc_hdr.html
+---
+
+## Wstęp
+
+W założeniu przegląd ważniejszych pojęć używanych w Demografii
+w nawiązaniu do danych dostępnych z publicznych repozytoriów typu
+GUS, EUROSTAT, WHO czy FAO. 
+
+## Pomiar
+
+Spis powszechny (**national census**), rejestry (**register** USC, PESEL),
+badanie (survey)
+
+Spis/rejestr: wszyscy są liczeni. Badania zwykle są cząstkowe (inaczej by
+się nazywały jeżeli by nie były :-)).
+Spis co 10 (lub co 5) lat. Sposób zliczania: *de facto*
+(miejsce aktualnego pobytu)
+albo *de jure* (miejsce stałego zamieszkania).
+
+Pierwsze spisy: 3000 lat BC (Chiny) albo Cesarstwo Rzymskie (5 wiek BC;
+spis jest wspomniany w Bibliii,
+na spis jechała św Rodzina
+przed urodzeniem Jezusa -- Ewangelia wg św Łukasza,
+cf https://pl.wikipedia.org/wiki/Ewangelia_%C5%81ukasza)
+
+Pierwszy spis w Polsce
+https://pl.wikipedia.org/wiki/Pierwszy_Powszechny_Spis_Ludno%C5%9Bci
+Historia spisów na ziemiach Polskich
+https://spis.gov.pl/o-spisie/historia-spisow
+
+W USA pierwszy spis w 1790 roku w podziale na następujące
+kategorie: biali mężczyźni pełnoletni (16 lat i więcej),
+biali mężczyźni nieletni, białe kobiety, niewolnicy, inni (BP_2010)
+
+Rejestry: USC/PESEL. Akt urodzenia/zgonu/zawarcia małżeństwa. Teoretycznie
+precyzyjne (albo wiarygodne
+czyli w języku **reliable**), ale różnie to bywa...
+
+**Rate** vs **ratio**: czyli iloraz czegoś
+przez coś (jeżeli obie wielkości mają tę samą miarę to będzie **ratio**, a jak \różną to **rate**). W PL nie rozróżnia się ratio/rate -- oba
+ilorazy są nazywane po prostu **współczynnik**. 
+
+
+## Płodność (*Fertility*) 
+
+Urodzenia -- liczone są tylko urodzenia żywa; Liczone są także
+kolejne numery urodzenia, wiek matek i inne...
+
+Współczynnik rodności (**współczynnik urodzeń** albo *crude birth rate*):
+$U/L$, gdzie $L$ to liczba urodzeń żywych;
+$L$ to średnia liczba ludności lub stan w połowie roku. Zwykle wynik
+jest mnożony przez tysiąc.
+Na każde tysiąc ludności rodzi się ileś tam dzieci...
+
+Współczynnik płodności (*general fertility rate*): liczba urodzeń do liczby
+kobiet w wieku 15--49 lat (okres płodności). Może być liczony
+w grupach wiekowych (cząstkowy albo *age specific fertility rate*)
+
+Dzietność *total fertility rate*: przeciętna liczba dzieci jaką
+urodzi kobieta w ciągu swojego
+życia. Szacowany na podstawie współczynników płodności.
+W zasadzie to samo co WP. Są nawet uproszczone formuły:
+$T_{Fr} = G_{Fr} * 30$ (30 to okres 15--49 w latach) albo
+$T_{Fr} = C_{Br} * 30 * 4.5$.
+Pierwsza z formuł jest prawie dokładna.
+
+Współczynnik dzietności gwarantujący prostą zastępowalność pokoleń to
+2,1--2,15
+
+## Umieralność (*Mortality*)
+
+Zgony -- *permanent, irreversible cessation of all biological functions
+that sustain a living organism*. Dla statystyka potwierdzone urzędowo
+(Akt zgonu). Żeby umrzeć trzeba się urodzić BTW (zgony dotyczą urodzeń żywych)
+
+Współczynnik zgonów (**crude death rate**): $Z/L$ (liczba zgonów podzielona
+przez średnią liczbę ludności w roku lub stan)
+Może być liczony w wybranych grupach (wiekowych, zawodowych, płeć)
+wtedy nazywa się cząstkowy (albo ASDR **age-specific
+death rate**).
+
+W Polsce używa się pojęcia: **współczynnik zgonów w grupie osób w
+wieku x ukończonych lat** (jeżeli liczony dla lat; jeżeli dla
+przedziałów lat to x--y ukończonych lat)
+
+Zgony niemowląt traktuje się inaczej: $Z/U$ (zgony do urodzeń żywych.)
+Może być/jest używany jako miara poziomu rozwoju społeczno-ekonomicznego.
+
+## 
+
+Zgony wg przyczyn. Kontrowersyjna sprawa
+Kody śmieciowe (codes)
+
+International Statistical Classification of Diseases
+and Related Health Problems (ICD/WHO)
+https://www.who.int/standards/classifications/classification-of-diseases
+https://en.wikipedia.org/wiki/International_Classification_of_Diseases
+
+W jaki sposób GUS ustala przyczynę zgonu?
+https://stat.gov.pl/obszary-tematyczne/ludnosc/statystyka-przyczyn-zgonow/jak-gus-prowadzi-statystyke-zgonow,8,1.html
+
+Tablice trwania życia (tablice wymieralności albo *tables*),
+to zbiór współczynników
+opisujących **proces wymierania** jakiejś populacji.
+
+* współczynniki zgonów w grupach wiekowych (age specific death rate
+(Mx albo DEATHRATE wg Eurostatu))
+
+* prawdopodobieństwo zgonu w ciągu roku dla osoby w wieku x lat
+(Probability of dying between exact ages (qx albo PROBDEATH))
+
+* prawdopodobieństwo przeżycia w ciągu roku dla osoby w wieku x lat
+(Probability of surviving between exact ages (px albo PROBSURV))
+
+* liczba osób dożywających x ukończonych lat
+(Number left alive at given exact age (lx albo SURVIVORS))
+
+* liczba zmarłych w ciągu roku (czyli takich, którzy ukończyli x lat)
+(Number dying between exact ages (dx albo NUMBERDYING wg Eurostatu,
+ale tego współczynnika EuroStat nie publikuje))
+
+* łączna liczba osobo-lat dożywających wieku x lat
+(Person-years lived between exact age (Lx albo PYLIVED))
+
+* łączna liczba osobo-lat do przeżycia przez osoby w wieku x lat
+(Total person-years lived above given exact age (Tx albo TOTPYLIVED))
+
+* przeciętne dalsze trwanie życia przez osobę wieku x lat (Life
+expectancy at given exact age (ex albo LIFEXP))
+
+Przyrost naturalny (): różnica pomiędzy liczbą urodzeń a zgonów w roku. Miara
+mianowana. Dla porównań **współczynnik przyrostu naturalnego** (PN podzielony
+orzez średnią liczbę ludności)
+
+## Migracje
+
+Jedna ważna różnica: pomiar. Nie ma rejestrów migratów (a są rejestry
+urodzeń i zgonów.) Migracje w zwiazku z tym są:
+szacowane, uznaniowe i nieprecyzyjne. Kto to jest zmarły to generalnie
+wiadomo, kto to jest migrant niekoniecznie (w praktyce)
+
+## Płeć i wiek 
+
+## Małżeństwa i rozwody
+
+Według Eurostatu: *A marriage is the act, ceremony or process by which the 
+legal relationship between two persons is formed. 
+The legality of the union may be established by civil, religious or other means as recognised by the laws of each country.* Podobnie *A divorce is the final legal dissolution of a marriage.*
+
+Co konkretnie stanowi *legal relationship between two persons* w różnych krajach różnie to wygląda.
+W PL jak wiadomo nierejestrowane są związku osób tej samej płci podczas gdy
+w wielu krajach istnie coś takiego jak związki partnerskie
+https://en.wikipedia.org/wiki/Civil_union zastępowane przez małżeństwa dla osób o tej samej płci
+https://en.wikipedia.org/wiki/Same-sex_marriage.
+
+*The family unit is a changing concept: what it means to be a member of a family and the expectations people have of family relationships vary with time and space, making it difficult to find a universally agreed and applied definition. Due to differences in the timing and formal recognition of changing patterns of family formation and dissolution, these concepts have become more difficult to measure in practice. Analysts of demographic statistics therefore have access to relatively few complete and reliable data sets with which to make comparisons over time and between or within countries.*
+https://ec.europa.eu/eurostat/statistics-explained/index.php/Marriage_and_divorce_statistics
+
+## Aborcja i Eutanazja
+
+Kontrowersyjne sprawy których lepiej nie poruszać. Statystyki aborcyjne są mocno wyrywkowe, także
+w tych krajach, w których jest legalnie powszechniej dostępna niż w Polsce.
+Co do eutanazji to wyróżnia się kilka jej form, z której najbardziej nazwijmy to radykalna
+jest legalna w kilku krajach w Europie zaledwie (Belgia/Holandia/Luksemburg). Eurostat
+nie udostępnia żadnych danych dotyczących eutanazji. 
+
+## Przydatne linki
+
+* Słowniczek terminów epidemiologicznych
+http://www.przeglepidemiol.pzh.gov.pl/slowniczek-terminow-epidemiologicznych
+
+<!--
+Local variables:
+ ispell-local-dictionary: "polish"
+End:
+-->
+

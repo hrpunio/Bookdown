@@ -874,7 +874,128 @@ p6f
 ```
 
 
+**Liczba ludności na świecie wg US Census Bureau**. W dziale
+*Population estimates and projections* są dane
+historyczne i prognozy do roku 2100 dla 228 krajów. W szczególności
+do pobrania są dwa pliki w formacie CSV. Jeden zawiera roczne grupy wiekowe i w związku
+z tym jest ogromny (300Mb.) Drugi operuje 5-letnimi przedziałami. 
+Pomimo tego też jest duży (30Mb) i w związku
+z tym z tego pliku pobieramy dane dla 16 wybranych krajów świata. 
+Te dane są w pliku `idb5yr_16.csv` (niecałe 2Mb). 
 
+```{r}
+## 13 krajów bez NL, BE, UZ bo nie starczy kolorów na wykresie
+countries <- c('CN', 'DE', 'ET', 'FR', 'IN', 'IR', 'NR', 'PK', 'PL',
+  'RU', 'SE', 'TR', 'US')
+z0 <- read.csv("idb5yr_16.csv", sep = ';',  header=T, na.string="NA" )
+## US last forecast is 2060
+z <- z0 %>% filter (GENC %in% countries)
+```
+
+Plik zawiera prawie 100 zmiennych więc dla porządku do dalszych
+obliczeń wybieramy tylko te które nas interesują (YR -- rok, GENC -- kod iso, NAME -- nazwa
+oraz POP -- czyli liczbę ludności ogółem):
+
+```{r}
+z <- z %>% select (YR, GENC, NAME, POP) %>% as.data.frame()
+```
+
+Przedstawmy dynamikę liczby ludności jako wielkość względną, w stosunku
+do roku 2015, wyrażoną w procentach:
+
+```{r}
+z2015 <- z %>% filter (YR == 2015 ) %>% as.data.frame()
+zp <- left_join(z, z2015, by=c("GENC"))
+## Population as % of 2015
+zp$pop <- zp$POP.x / zp$POP.y * 100
+```
+
+Wykres (z jakiś powodów dla USA prognoza jest tylko do roku 2060):
+
+```{r, warning=F, message=F}
+colors16 <- c('CN' = "red", 'DE' = "red4", 'ET' = "orchid",
+   'FR' = "yellow", 'IN' = "orchid4", 'IR' = "palegreen", 'NR' = "powderblue",
+   'PK' = "purple1", 'PL' = "purple4", 'RU' = "pink",
+   'SE' = "yellow4", 'TR' = "black", 'US' = "palegreen4")
+p3 <- ggplot(zp, aes(x=as.Date(as.character(YR.x), format = "%Y"), y=pop, color=GENC)) +
+  geom_line(size=.4, alpha=.6) +
+  geom_point(size=.8, alpha=.25) +
+  ## wypisz ostatnią wartość POP
+  geom_text(data=. %>%
+              arrange(desc(  as.Date(as.character(YR.x), format = "%Y") )) %>%
+              group_by(GENC) %>%
+              slice(1),
+              aes(label= sprintf("%.1f", pop)),
+              position=position_nudge(0.1, 0.5), hjust=.9, vjust=-0.6,
+                 size=2, color='black', alpha=.4, show.legend=FALSE) +
+  scale_color_manual(values = colors16)
+p3
+```
+
+Polska na czele (jak odwrócić tabelę)
+
+Wykorzystując ten sam zbiór danych (czyli *Population estimates and projections* US Census Bureau)
+porównajmy struktury wieku dla wybranych 16 krajów. W tym celu zmodyfikujmy ramkę `z0`:
+
+
+```{r}
+## tylko zmienne dot grup wiekowych M/F ale bez wartości ogółem
+z <- z0 %>% select("YR", "GENC", starts_with(c("MPOP", "FPOP"))) %>%
+   select(-MPOP, -FPOP) %>% as.data.frame()
+```
+
+Zamieniamy na *długi* format danych, *filtrujemy* (zostawiając tylko rok 2020), modyfikujemy
+wartości zmiennej `grp` usuwając `POP` (żeby na wydruku lepiej wyglądało):
+
+```{r}
+zz <- z %>% pivot_longer(starts_with(c("MPOP", "FPOP")),
+       names_to = "grp", values_to = "value") %>%
+       filter (YR == 2020) %>% 
+       mutate(grp=str_replace(grp, "POP", "")) %>% as.data.frame()
+```
+
+Dodajemy zmienną `sex` której wartości są tworzone na podstawie wartości zmiennej `grp`.
+Wartości zmiennej `value` dzielimy przez 1000 (ludność w tysiącach):
+
+```{r}
+zz$sex <- as.factor(substr(zz$grp,1,1))
+zz$value <- zz$value/1000
+
+##levels(as.factor(zz_sw$grp))
+```
+
+Ustalamy kolejność wartości zmiennej `grp` (polecenie `levels` do tego służy):
+
+```{r}
+zz <- zz %>% mutate ( grp = factor(grp, 
+           levels = c(
+              "M100_",  "M95_99", "M90_94", "M85_89", "M80_84", "M75_79",
+              "M70_74", "M65_69", "M60_64", "M55_59", "M50_54", "M45_49",
+              "M40_44", "M35_39", "M30_34", "M25_29", "M20_24", "M15_19", "M10_14",
+              "M5_9", "M0_4",
+              "F0_4", "F5_9",
+              "F10_14", "F15_19", "F20_24", "F25_29", "F30_34", "F35_39",
+              "F40_44", "F45_49", "F50_54", "F55_59", "F60_64", "F65_69", "F70_74",
+              "F75_79", "F80_84", "F85_89", "F90_94", "F95_99", "F100_"
+           )))
+
+##levels(as.factor(zz_sw$grp))
+```
+          
+Wreszcie wykres. Poor man's population pyramids:
+          
+```{r, message=F, warning=F, fig.width=10, fig.height=16}
+pf1 <- ggplot(zz, aes(x=grp)) +
+   geom_bar(aes(y=value, fill=sex), 
+      stat="identity", position=position_dodge(width=.4), width=.8, alpha=.4) +
+   xlab(label="wiek") +
+   ylab(label="tys") +
+   theme(legend.position="top") +
+   coord_flip() +
+   facet_wrap(~GENC, scales = "free", ncol = 4) +
+   ggtitle("Piramida wieku", subtitle='')
+pf1
+```
 
 
 ## Dane demograficzne
@@ -1024,6 +1145,17 @@ każdego wykresu znajduje się zestaw guzików do wyboru tego co ma być wyświe
 ora guzik **download** służący do pobrania danych.
 
 Punkt startu: https://ourworldindata.org/
+
+### US Census Bureau
+
+Czyli Amerykański Urząd ds Spis Ludności, ale udostępniający także różne inne ciekawe dane,
+w szczególności *International Data Base (IDB)
+Population estimates and projections for 228 countries and areas*
+https://www.census.gov/data-tools/demo/idb/#/country?YR_ANIM=2021
+
+Ciekawostkowo ponieważ w USA mieszka trochę obywateli pochodzenia polskiego
+są strony w języku polskim (oprócz chińskiego, koreańskiego, wietnamskiego, rosyjskiego, francuskiego, portugalskiego, hiszpańskiego, arabskiego, filipińskiego, kreolskiego; nie ma włoskiego i niemieckiego natomiast:-)) a jakże:
+https://www.census.gov/newsroom/press-releases/2020/2020-census-data-collection-ending/2020-census-data-collection-ending-polish.html
 
 ## Przydatne linki
 

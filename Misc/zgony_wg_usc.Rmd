@@ -1,0 +1,322 @@
+---
+title: "Zgony w Polsce wg rejestrów USC"
+author: 
+  - name: "Tomasz Przechlewski"
+    email:  t.plata-przechlewski@psw.kwidzyn.edu.pl
+    affiliation: "Powiślańska Szkoła Wyższa (Kwidzyn/Poland)"
+description: (c) Tomasz Przechlewski / CC-BY license 
+date: "Jan. 2021"
+output:
+  html_document:
+    includes:
+      before_body: misc_hdr.html
+---
+
+## Dane 
+
+Źródłem danych są rejestry USC udostępnione pod adresem
+https://dane.gov.pl/pl/dataset/1953,liczba-zgonow-zarejestrowanych-w-rejestrze-stanu-cywilnego
+
+```{r, echo=F, message=F}
+library("ggplot2")
+library("dplyr")
+library("tidyr")
+library("scales")
+library("ggthemes")
+library("ggpubr")
+
+options(scipen = 999)
+
+theme_nikw <- function(){
+ theme_wsj() %+replace%
+ theme(
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid', colour = "cornsilk3"),
+  panel.grid.major = element_line(size = 0.25, linetype = 'solid', colour = "cornsilk3"),
+  ##
+  axis.text.x  = element_text(size = 6 ),
+  axis.text.y  = element_text(size = 6 ),
+  ## https://stackoverflow.com/questions/14379737/how-can-i-make-xlab-and-ylab-visible-when-using-theme-wsj-ggthemes
+  axis.title  = element_text(family="sans", size=6),
+  ## Poniższe natomiast nie działa:
+  #axis.title.x  = element_text(size = 6 ),
+  #axis.title.y  = element_text(size = 6 ),
+  ## margin=margin(r=, t=, b = 3, l=, unit="pt")
+  plot.title=element_text(family="sans", size=14, hjust=0, margin=margin(b = 3, unit="pt")),
+  plot.subtitle=element_text(family="sans", size=8, hjust=0),
+  legend.title=element_text(family="sans", size=8),
+  plot.caption = element_text(family="sans", size = 6)
+  )
+}
+
+theme_update(legend.title=element_text(family="sans", size=8), legend.position="top" )
+
+NIKW <- "© NI-KW @ github.com/knsm-psw/NI-KW"
+USC <- 'https://dane.gov.pl/pl/dataset/1953,liczba-zgonow-zarejestrowanych-w-rejestrze-stanu-cywilnego'
+source <- sprintf ("%s | źródło/source: %s", NIKW, USC)
+```
+
+Pod podanym adresem są trzy pliki w tym plik zawierający liczbę zgonów wg województw
+w podziale na 4 grupy: kobiety 64 lata i młodsze, mężczyźni 64 lata i młodsi,
+kobiety 65 lata i starsze oraz mężczyźni 65 lat i starsi. Pliki te są aktualizowane około 10
+każdego miesiąca (stan na 2020/2021)
+
+Dane te wstępnie konwertujemy (do formatu *długiego*) i wczytujemy za pomocą:
+
+```{r}
+z <- read.csv("zgony_WW_monthly.csv", sep = ';',  header=T, na.string="NA" )
+## Powinno być 64 miesiące x 16 województw = 1024 wiersze
+nrow(z)
+```
+
+Obliczamy różne rzeczy typu numer pierwszego/ostatniego miesięca/roku:
+
+```{r}
+last_month <- sprintf ("%s", last(z$month))
+last_month_no <- as.numeric(last_month)
+first_month <- sprintf ("%s", first(z$month))
+first_month_no <- as.numeric(first_month)
+
+last_year <- sprintf ("%s", last(z$year))
+last_year_no <- as.numeric(last_year)
+first_year <- sprintf ("%s", first(z$year))
+first_year_no <- as.numeric(first_year)
+```
+
+Ramka `zp` zawiera wszystkie lata za wyjątkiem ostatniego; ramka `zc` ostatni rok.
+Obliczamy średnie wartości liczby zgonów dla jednoimiennych miesięcy:
+
+```{r, message=F, warning=F}
+zp <- z %>% filter (year < last_year_no ) %>% as.data.frame
+zc <- z %>% filter (year == last_year_no ) %>% as.data.frame
+
+## średnie dla wszystkich miesięcy za wyjątkiem ostatniego
+zp <- zp %>% group_by(month, woj) %>%  summarise( 
+        k64mean = mean(k64, na.rm=TRUE),
+        k65mean = mean(k65, na.rm=TRUE),
+        m64mean = mean(m64, na.rm=TRUE),
+        m65mean = mean(m65, na.rm=TRUE)
+) %>% as.data.frame
+
+zc <- zc %>% group_by(month, woj) %>%  summarise( 
+        k64c = mean(k64, na.rm=TRUE),
+        k65c = mean(k65, na.rm=TRUE),
+        m64c = mean(m64, na.rm=TRUE),
+        m65c = mean(m65, na.rm=TRUE)
+) %>% as.data.frame
+```
+
+Łączymy ramki `zp`/`zc` (w oparciu o wartości kolumn `month` oraz `woj`). 
+Obliczamy wkaźniki dynamiki jako iloraz liczby zgonów w roku `r last_year`
+do średniej z lat poprzednich. Liczymy także różnice pomiędzy liczbą zgonów
+w roku `r last_year` a średnią z poprzednich lat:
+
+```{r, message=F, warning=F}
+zz <- left_join(zp, zc, by=c('month', 'woj'))
+## różnice względem średnich z poprzednich lar
+zz$k64p <- zz$k64c/zz$k64mean * 100
+zz$k65p <- zz$k65c/zz$k65mean * 100
+zz$m64p <- zz$m64c/zz$m64mean * 100
+zz$m65p <- zz$m65c/zz$m65mean * 100
+## różnice
+zz$k64d <- zz$k64c - zz$k64mean
+zz$k65d <- zz$k65c - zz$k65mean
+zz$m64d <- zz$m64c - zz$m64mean
+zz$m65d <- zz$m65c - zz$m65mean
+
+#total <- sum(zz$k64d) + sum(zz$k65d) + sum(zz$m65d) + sum(zz$m64d)
+# zamieniamy na format długi na potrzeby wykresu
+zzl <- zz %>% pivot_longer(cols = k64p:m65p, names_to = "agesex", values_to = "Value")
+
+# suma różnicy zgonów wg województw
+zzdl_agg <- zz %>% group_by(woj) %>%  summarise( mm64 = sum(m64d), mm65 = sum(m65d),  
+                                                 kk64 = sum(k64d), kk65 = sum(k65d))
+```
+
+Plik `LUDN_3447.csv` (pobrany z Banku Danych Lokalnych) zawiera liczbę ludności
+w grupach wieku/płci wg województw. Pozwoli to obliczyć liczbę zgonów nie w liczbach bezwględnie tylko  na `C` liczby (np 10 tysięcy) ludności w danej grupie wieku/płci.
+
+Uwaga: w pliku `LUDN_3447.csv` nie ma liczby ludności w grupie 0--64 ale łatwo ją obliczyć
+jako różnicę liczby ogółem minus liczbę ludności w grupie 65+.
+
+```{r}
+woj_pop <- read.csv("LUDN_3447_0.csv", sep = ';',  header=T, na.string="NA" )
+## liczymy liczbę ludności w grupie 0--64:
+woj_pop$O64 <- woj_pop$O2019 - woj_pop$O65
+woj_pop$K64 <- woj_pop$K2019 - woj_pop$K65
+woj_pop$M64 <- woj_pop$M2019 - woj_pop$M65
+```
+
+Łączymy tabele w oparciu o kolumnę z nazwą województwa, która wszelako ma w jednej
+tabeli nazwę `woj` a w drugiej `nazwa` (dlatego należy `by=c("woj"="nazwa")`)
+
+
+```{r}
+## złączenie na kolumnach woj <=> nazwa
+zzdl_agg = left_join(zzdl_agg, woj_pop, by=c("woj"="nazwa"))
+## na 10 tys
+u <- 10000
+
+zzdl_agg$mm64p1 <- zzdl_agg$mm64 / zzdl_agg$M64 * u
+zzdl_agg$mm65p1 <- zzdl_agg$mm65 / zzdl_agg$M65 * u
+zzdl_agg$kk64p1 <- zzdl_agg$kk64 / zzdl_agg$K64 * u
+zzdl_agg$kk65p1 <- zzdl_agg$kk65 / zzdl_agg$K65 * u
+
+## zamiana na długi format na potrzeby wykresu:
+zzdl_agg_65 <- zzdl_agg %>% select (woj, mm65p1, kk65p1) %>% 
+        pivot_longer(cols = mm65p1:kk65p1, names_to = "agesex", values_to = "Value")
+```
+
+Wykres 1: Różnica pomiędzy liczbą zgonów w roku `r last_year` a średnią 
+z lat `r first_year`--`r last_year` (na 10 tysięcy ludności w odpowiedniej grupie wieku i płci)
+
+```{r, warning=F, fig.width=10, fig.height=9}
+pd <- ggplot(zzdl_agg_65, aes(x=woj, y=Value, fill=agesex)) +
+        #geom_point(size=1.8, alpha=.3) +
+        geom_bar(stat="identity", position=position_dodge(width=.4), width=.8,  alpha=.5) +
+        ###
+        #scale_y_continuous(breaks=seq(50, 300, by=20)) +
+        xlab(label="woj/province") +
+        ylab(label="zgony/deaths") +
+        #
+        coord_flip() +
+        ggtitle(sprintf("Zgony wg województw (różnica %i - (średnia %i--%i) na 10 tys)", last_year_no, last_year_no -1, first_year_no), 
+                subtitle=sprintf("Total deaths by provinces (difference %i - (average %i--%i) per 10 ths)", 
+                                 last_year_no, last_year_no -1, first_year_no))
+pd
+```
+
+Wykres 2: Liczba zgonów wg województw w roku `r last_year`
+w porównaniu do średniej z lat `r first_year`--`r last_year` (w %)
+
+```{r, warning=F, fig.width=10, fig.height=9}
+## problem with legend in ggplot with multiple lines
+## https://community.rstudio.com/t/problem-with-legend-in-ggplot-with-multiple-lines/75814/2
+pe <- ggplot(zzl, aes(x=as.numeric(month), y=Value, color=agesex)) +
+     geom_line(size=.8, alpha=.5) +
+     geom_point(size=.8, alpha=.3) +
+     ###
+     scale_y_continuous(breaks=seq(50, 300, by=20)) +
+     scale_x_continuous(breaks=seq(1, 12, by=2)) +
+     scale_color_manual(name="Wiek/Age/ Płeć/Sex: ", 
+         labels = c(m65p="M65+", m64p="M64-", k65p="K/F65+", k64p="K/F64-"),
+         values = c(m65p="cyan4", m64p="cyan1", k65p="orchid4", k64p="orchid1" )) +
+     xlab(label="miesiąc/month") +
+     ylab(label="%") +
+     geom_hline(yintercept = 100, color='red1', alpha=.4, size=.4) +
+     facet_wrap( ~woj, scales = "fixed") +
+     ggtitle(sprintf("Zgony wg województw (%i/(średnia %i--%i) w %%)", last_year_no, last_year_no -1, first_year_no), 
+                subtitle=sprintf("Total deaths by provinces (%i/(average %i--%i) in %%)", 
+                                 last_year_no, last_year_no -1, first_year_no))
+
+pe
+```
+
+Wykres 3: Zgony w grupie mężczyzn w wieku 65 lat i starszych wg województw w latach
+`r first_year`--`r last_year`:
+
+```{r, warning=F, fig.width=10, fig.height=9}
+z <- z %>% gather(key="sexage", value="nn", k64, k65, m64, m65) %>% as.data.frame()
+
+z <- z %>% mutate(sexage=recode(sexage, 'k64'= "K 64 lata i mniej",
+                            'k65'= "K 65 lat i więcej",
+                            'm64'= "M 64 lata i mniej",
+                            'm65'= "M 65 lat i więcej" ))
+
+z65m <- z %>% filter (sexage == "M 65 lat i więcej" ) %>% as.data.frame()
+pg65 <- ggplot(z65m, aes(x= as.factor(month), group=as.factor(year), color=as.factor(year), y=nn )) +
+ geom_line(size=.5 ) +
+ geom_point(size=2.5, alpha=.3) +
+ geom_text(data=z65m[ z65m$year > 2019 & z65m$month > 8, ],
+            aes(x= as.factor(month), y= nn,
+            label=sprintf("%i", nn)), vjust=-1.25, hjust=1.25, size=1.5, alpha=.9 ) +
+ xlab(label="") +
+ ylab(label="tys") +
+ theme_nikw()+
+ labs(caption=source, color='Rok') +
+ facet_wrap( ~woj, scales = "free_y") +
+ ggtitle(sprintf("Zgony mężczyźni 65+ wg województw (Polska)"), 
+       subtitle=sprintf("Total deaths males 65+ by provinces(Poland)"))
+pg65
+```
+
+Wykres 4: Zgony w grupie mężczyzn w wieku 64 lata i młodszych wg województw w latach
+`r first_year`--`r last_year`:
+
+```{r, warning=F, fig.width=10, fig.height=9}
+z64m <- z %>% filter (sexage == "M 64 lata i mniej" ) %>% as.data.frame()
+pg64 <- ggplot(z64m, aes(x= as.factor(month), group=as.factor(year), 
+                         color=as.factor(year), y=nn )) +
+        geom_line(size=.5 ) +
+        geom_point(size=2.5, alpha=.3) +
+        geom_text(data=z64m[ z64m$year > 2019 & z64m$month > 8, ],
+                  aes(x= as.factor(month), y= nn,
+                      label=sprintf("%i", nn)), vjust=-1.25, hjust=1.25, size=1.5, alpha=.9 ) +
+        xlab(label="") +
+        ylab(label="tys/ths") +
+        theme_nikw()+
+        labs(caption=source, color='Rok/Year') +
+        facet_wrap( ~woj, scales = "free_y") +
+        ggtitle(sprintf("Zgony mężczyźni 64- wg województw (Polska)"), 
+                subtitle=sprintf(" Total deaths males 0--64 by provinces (Poland)"))
+pg64
+```
+
+Wykres 5: Zgony w grupie kobiet w wieku 65 lat i starszych wg województw w latach
+`r first_year`--`r last_year`:
+
+
+```{r, warning=F, fig.width=10, fig.height=9}
+z65f <- z %>% filter (sexage == "K 65 lat i więcej" ) %>% as.data.frame()
+pf65 <- ggplot(z65f, aes(x= as.factor(month), group=as.factor(year), color=as.factor(year), y=nn )) +
+        geom_line(size=.5 ) +
+        geom_point(size=2.5, alpha=.3) +
+        geom_text(data=z65f[ z65f$year > 2019 & z65f$month > 8, ],
+                  aes(x= as.factor(month), y= nn,
+                      label=sprintf("%i", nn)), vjust=-1.25, hjust=1.25, size=1.5, alpha=.9 ) +
+        #scale_y_continuous(breaks=seq(2500, 25000, by=2500)) +
+        #coord_cartesian(ylim = c(0, max(z$nn, na.rm = T))) +
+        xlab(label="") +
+        ylab(label="tys") +
+        theme_nikw()+
+        labs(caption=source, color='Rok') +
+        facet_wrap( ~woj, scales = "free_y") +
+        ggtitle(sprintf("Zgony kobiety 65+ wg województw (Polska)"), 
+                subtitle=sprintf("Total deaths females 65+ by provinces (Poland)"))
+pf65
+```
+
+Wykres 6: Zgony w grupie kobiet w wieku 64 lata i młodszych wg województw w latach
+`r first_year`--`r last_year`:
+
+```{r, warning=F, fig.width=10, fig.height=9}
+z64f <- z %>% filter (sexage == "K 64 lata i mniej" ) %>% as.data.frame()
+pf64 <- ggplot(z64f, aes(x= as.factor(month), group=as.factor(year), color=as.factor(year), y=nn )) +
+        geom_line(size=.5 ) +
+        geom_point(size=2.5, alpha=.3) +
+        geom_text(data=z64f[ z64f$year > 2019 & z64f$month > 8, ],
+                  aes(x= as.factor(month), y= nn,
+                      label=sprintf("%i", nn)), vjust=-1.25, hjust=1.25, size=1.5, alpha=.9 ) +
+        #scale_y_continuous(breaks=seq(2500, 25000, by=2500)) +
+        #coord_cartesian(ylim = c(0, max(z$nn, na.rm = T))) +
+        xlab(label="") +
+        ylab(label="tys") +
+        theme_nikw()+
+        labs(caption=source, color='Rok') +
+        facet_wrap( ~woj, scales = "free_y") +
+        ggtitle(sprintf("Zgony kobiety 64- wg województw (Polska)"), 
+                subtitle=sprintf("Total deaths females 0--64 by provinces (Poland)"))
+pf64
+```
+
+## Podsumowanie
+
+W roku `r last_year`
+w Polsce zanotowano `r sum(zz$k64d) + sum(zz$k65d) + sum(zz$m65d) + sum(zz$m64d)` zgonów
+(ogółem we wszytkich grupach) 
+więcej w  porównaniu do średniej z lat `r first_year`--`r last_year_no -1`
+
+<!--
+Local variables:
+ ispell-local-dictionary: "english"
+End:
+-->

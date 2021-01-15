@@ -1,0 +1,364 @@
+---
+title: "Zgony w Polsce. Analiza danych tygodniowych"
+author: 
+  - name: "Tomasz Przechlewski"
+    email:  t.plata-przechlewski@psw.kwidzyn.edu.pl
+    affiliation: "Powiślańska Szkoła Wyższa (Kwidzyn/Poland)"
+description: (c) Tomasz Przechlewski / CC-BY license 
+date: "Jan. 2021"
+output:
+  html_document:
+    includes:
+      before_body: misc_hdr.html
+---
+
+## Dane 
+
+Źródłem danych są rejestry USC udostępnione pod adresem
+https://stat.gov.pl/obszary-tematyczne/ludnosc/ludnosc/zgony-wedlug-tygodni,39,2.html.
+GUS udostępnia te dane w postaci jedego wielkiego pliku `zip`, zawierającego 
+dane tygodniowe dotyczące zgonów począwszy od 2000 roku. Każdy rok to oddzielny
+plik w formacie `xlsx`. GUS aktualizuje dane około połowy każdego miesiąca.
+
+Pliki te konwertuję do formatu csv za pomocą programu `xlsx2csv` a następnie
+zamieniam oryginalny *szeroki* format (każdy tydzień w oddzielnej kolumnie) 
+na format długi (6 kolumn: rok, płeć, numer tygodnia, data, grupa wieku, liczba zgonów)
+
+```
+for a in *.xlsx; do
+ xlsx2csv -i -d ';' -s 0 ${f}.xlsx > ${f}.csv_
+ perl conv.pl ${f}.csv_ > ${f}.csv
+done
+```
+
+```{r, echo=F, message=F, warning=F}
+library("ggplot2")
+library("dplyr")
+library("scales")
+library("ggthemes")
+library("ggpubr")
+library("tidyr")
+library("readr")
+
+picWd <- 12
+picHt <- 10
+spanV <- 0.5
+surl <- "© NI-KW (source: http://www.wsse.gda.pl/)"
+mainColor <- "deeppink"
+loessColor <- "steelblue"
+mainBreaks <- "1 month"
+farbe19 <- '#F8766D'
+farbe20 <- '#00BFC4'
+
+NIKW <- "© NI-KW @ github.com/knsm-psw/GUS_mortality | https://stat.gov.pl/obszary-tematyczne/ludnosc/ludnosc/zgony-wedlug-tygodni,39,2.html"
+```
+
+W ostatnim kroku wszystkie pliki łączymy w jeden pn `PL-mortality-2015_2020.csv`
+którego objętość to ponad 200Mb! Dane wczytujemy poleceniem `read.csv` (Uwaga: plik `csv`
+został spakowany kompresorem gzip; R z biblioteką `tidyverse` albo z biblioteką `readr`,
+która jest częścią `tidyverse` jest na tyle cwany,
+że potrafi czytać także spakowany
+plik csv, por. https://stackoverflow.com/questions/20609758/read-and-write-csv-gz-file-in-r):
+
+```{r, message=F}
+z <- read.csv("PL-mortality-2015_2020.csv.gz", sep = ';',  header=T, na.string="NA" )
+str(z)
+nrow(z)
+```
+
+Zatem ramka `z` składa się z `r ncol(z)` 
+kolumn o angielskich nazwach (bo brzmią mądrzej)
+oraz `r nrow(z)` wierszy.
+
+Zmieniamy (poleceniem `recode`) nazwy grup wieku na lepsze (z punktu widzenia 
+estetyki wykresów, które za moment będziemy tworzyć):
+
+```{r}
+z <- z %>% mutate(age=recode(age, 
+   'A4' = "00--04", 'A9' = "05--09", 'A14'= "10--14", 'A19'= "15--19",
+   'A24'= "20--24", 'A29'= "25--29", 'A34'= "30--34", 'A39'= "35--39",
+   'A44'= "40--44", 'A49'= "45--49", 'A54'= "50--54", 'A59'= "55--59",
+   'A64'= "60--64", 'A69'= "65--69", 'A74'= "70--74", 'A79'= "75--79",
+   'A84'= "80--84", 'A89'= "85--89", 'A99'= "90--",   'T'  = "razem")) %>% as.data.frame()
+
+lastO <- last(z$date)
+lastT <- last(z$week)
+## województwa w nomenklaturze NUTS
+nuts <- c('PL21', 'PL22', 'PL41', 'PL42', 'PL43', 'PL51', 'PL52', 
+   'PL61', 'PL62', 'PL63', 'PL71', 'PL72', 'PL81', 'PL82', 'PL84', 'PL91', 'PL92')
+```
+
+Wybieramy tylko wiersze z danymu ogółem (bez podziały M/K) dla całej Polski
+
+```{r} 
+z00 <- z %>% filter ( sex == 'O'  & geo == 'PL' ) %>% as.data.frame()
+```
+
+Teraz idea jest taka, że wartości z ostatniego roku będziemy porównywać
+ze średnią z poprzednich pięciu lat. Nie wpisujemy tych wartości na *zicher* tylko
+pobieramy z ramki (oczywiście na zicher jest parametr 5). Następnie tworzymy
+dwie ramki: jedną z danymi z ostatniego roku i drugą zawierającą 5 poprzednich lat:
+
+```{r}
+lastY <- last(z$year)
+firstY <-  lastY - 5
+z0 <- z00 %>% filter ( year >= firstY  & year < lastY ) %>% as.data.frame
+z1 <- z00 %>% filter ( year == lastY ) %>% as.data.frame
+
+## średnie w okresie 1 -- (n-1)
+zz0 <- z0 %>% group_by(age,week) %>% 
+  summarise( year = 't19', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+## wartości z okresu n (mogą być średnie ale to bez znaczenia)
+zz1 <- z1 %>% group_by(age,week) %>% 
+  summarise( year = 't20', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+### Połącz z powrotem zz0/zz1 w jedną ramkę do wydruku
+zz1 <- bind_rows(zz0, zz1)
+
+years.p.t <- sprintf ("średnia %i--%i", firstY, lastY -1)
+year.c.t <- sprintf ("%i", lastY)
+```
+
+Wykres 1. Zgony ogółem wg grup wieku i tygodnia roku (porównanie wartości z roku `r lastY`
+ze średnią z lat `r firstY`--`r lastY -1`)
+
+```{r, fig.width=picWd, fig.height=picHt}
+p1 <- ggplot(zz1, aes(x=week, y=vv, color=year)) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4) +
+ geom_point(size=.4, alpha=.5) +
+ facet_wrap( ~age, scales = "free_y") +
+ xlab(label="") +
+ ylab(label="") +
+ ##theme_nikw()+
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ scale_color_manual(name="Rok: ", 
+                    labels = c(years.p.t, year.c.t), values = c("t19"=farbe19, "t20"=farbe20 )) +
+ ggtitle("Zgony wg grup wiekowych (PL/Ogółem)", 
+    subtitle=sprintf("%s | ostatni tydzień: %s", NIKW, lastO) )
+p1
+```
+
+Wykres 2. Zgony mężczyzn wg grup wieku i tygodnia roku  (porównanie wartości z roku `r lastY`
+ze średnią z lat `r firstY`--`r lastY -1`):
+
+```{r, fig.width=picWd, fig.height=picHt}
+## Per analogia do tego co było ogółem tylko wybieramy M
+z00 <- z %>% filter ( sex == 'M'  & geo == 'PL' ) %>% as.data.frame
+z0 <- z00 %>% filter ( year >= firstY  & year < lastY ) %>% as.data.frame
+z1 <- z00 %>% filter ( year == lastY ) %>% as.data.frame
+
+## średnie w okresie 1 -- (n-1)
+zz0 <- z0 %>% group_by(age,week) %>% summarise( year = 't19', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+zz1 <- z1 %>% group_by(age,week) %>% summarise( year = 't20', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+### Połącz
+zz1 <- bind_rows(zz0, zz1)
+
+p2 <- ggplot(zz1, aes(x=week, y=vv, group=year, color=year)) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4) +
+ geom_point(size=.4, alpha=.5) +
+ facet_wrap( ~age, scales = "free_y") +
+ xlab(label="") +
+ ylab(label="") +
+ ##theme_nikw()+
+ ##labs(caption=source) +
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ scale_color_manual(name="Rok: ", 
+                    labels = c(years.p.t, year.c.t), values = c("t19"=farbe19, "t20"=farbe20 )) +
+ ggtitle("Zgony wg grup wiekowych (PL/Mężczyźni)", subtitle=sprintf("%s | ostatni tydzień: %s", NIKW, lastO) )
+p2
+```
+
+Wykres 3. Zgony kobiet wg grup wieku i województwa (porównanie wartości z roku `r lastY`
+ze średnią z lat `r firstY`--`r lastY -1`)
+
+```{r, fig.width=picWd, fig.height=picHt}
+## Per analogia do tego co było ogółem tylko wybieramy K
+z00 <- z %>% filter ( sex == 'K'  & geo == 'PL' ) %>% as.data.frame
+z0 <- z00 %>% filter ( year >= firstY  & year < lastY ) %>% as.data.frame
+z1 <- z00 %>% filter ( year == lastY ) %>% as.data.frame
+
+## średnie w okresie 1 -- (n-1)
+zz0 <- z0 %>% group_by(age,week) %>% summarise( year = 't19', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+zz1 <- z1 %>% group_by(age,week) %>% summarise( year = 't20', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+### Połącz
+zz1 <- bind_rows(zz0, zz1)
+
+p3 <- ggplot(zz1, aes(x=week, y=vv, group=year, color=year)) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4) +
+ geom_point(size=.4, alpha=.5) +
+ facet_wrap( ~age, scales = "free_y") +
+ xlab(label="") +
+ ylab(label="") +
+ ##theme_nikw()+
+ ##labs(caption=source) +
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ scale_color_manual(name="Rok: ", labels = c(years.p.t, year.c.t), 
+                    values = c("t19"=farbe19, "t20"=farbe20 )) +
+ ggtitle("Zgony wg grup wiekowych (PL/Kobiety)", subtitle=sprintf("%s | ostatni tydzień: %s", NIKW, lastO) )
+p3
+```
+
+Wykres 4. Zgony ogółem według województw i dni tygodnia w roku `r lastY`. Ponieważ
+ramka `z` nie zawiera nazw województw wczytujemy ramkę `nuts.csv`, która składa się dokładnie
+z dwóch kolumn: symbol makroregionu (wg klasyfikacji NUTS) oraz nazwa tegoż makroregionu.
+Uwaga: makroregion to w zasadzie to sami co województwo za wyjątkiem mazowieckiego, które
+jest w klasyfikacji unijnej podzielone na dwie częsci. 
+Zatem dla UE Polska składa się z 17 województw i nie jest to błąd:
+
+```{r, warning=F, message=F }
+### ogółem wg województw #####################################
+n <- read.csv("nuts.csv", sep = ';',  header=T, na.string="NA" )
+## dodaj nazwy do ramki z
+z <- left_join(z, n, by='geo')
+```
+
+Teraz wybieramy ogółem (płeć) oraz razem (wiek) oraz pomijamy `PL` wybierając tylko
+makroregiony (`geo %in% nuts`). Następnie stosujemy znany już trik z podzieleniem ramki
+na dwie części obliczeniem średniej dla pięciu lat poprzedzających bieżący i scaleniem
+z powrotem wyników:
+
+```{r, warning=F, message=F}
+z00 <- z %>% filter ( sex == 'O'  & geo %in% nuts & age == 'razem') %>% as.data.frame
+z0 <- z00 %>% filter ( year >= firstY  & year < lastY ) %>% as.data.frame
+z1 <- z00 %>% filter ( year == lastY ) %>% as.data.frame
+
+## średnie w okresie 1 -- (n-1)
+zz0 <- z0 %>% group_by(name,week) %>% summarise( year = 't19', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+zz1 <- z1 %>% group_by(name,week) %>% summarise( year = 't20', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+### Połącz
+zz1 <- bind_rows(zz0, zz1)
+```
+
+Że dziwne rzeczy dzieją się jesienią to ograniczamy wydruk do 6 ostatnich tygodni
+(dzięki czemu jest dokładniejszy):
+
+```{r warning=F, message=F, fig.width=picWd, fig.height=picHt}
+lastWeek <- last(zz1$week)
+firstWeek <- lastWeek - 6
+zz1 <- zz1 %>% filter ( week >= firstWeek  ) %>% as.data.frame
+
+p4 <- ggplot(zz1, aes(x=week, y=vv, group=year, color=year)) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4) +
+ geom_point(size=.4, alpha=.5) +
+ facet_wrap( ~name, scales = "free_y") +
+ xlab(label="") +
+ ylab(label="") +
+ ##theme_nikw()+
+ ##labs(caption=source) +
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ scale_color_manual(name="Rok: ", labels = c(years.p.t, year.c.t), values = c("t19"=farbe19, "t20"=farbe20 )) +
+ ggtitle(sprintf("Zgony wg województw* (tygodnie: %i--%i | %i tydzień zaczyna się %s)", firstWeek, lastWeek, lastWeek, lastO), 
+   subtitle=sprintf("*wg klasyfikacji NUTS stąd mazowieckie/stołeczne | %s", NIKW))
+p4
+```
+
+Wykres 5. Zgony ogółem według województw i dni tygodnia w roku `r lastY`
+jako % średniej z poprzednich 5 lat (`r sprintf("%i--%i", firstY, lastY)`)
+
+```{r, warning=F, message=F, fig.width=picWd, fig.height=picHt}
+## żeby obliczyć iloraz trzeba przejść z formatu długiego na szeroki:
+zz1 <- zz1 %>% spread(year, vv)
+zz1$yy <- zz1$t20 / zz1$t19 * 100
+
+p5 <- ggplot(zz1, aes(x=week, y=yy), color=farbe20) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4, color=farbe20) +
+ geom_point(size=.4, alpha=.5) +
+ facet_wrap( ~name, scales = "fixed") +
+ xlab(label="nr tygodnia") +
+ ylab(label="%") +
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ scale_color_manual(name="Rok 2020: ", labels = c("% 2020/(średnia 2015--2019)"), values = c("yy"=farbe20 )  ) +
+ ggtitle(sprintf("Zgony wg województw* (jako %% średniej z lat 2015--2019 | tygodnie: %i--%i)", firstWeek, lastWeek), 
+   subtitle=sprintf("*wg klasyfikacji NUTS stąd mazowieckie/stołeczne | %s | ostatni tydzień: %s", NIKW, lastO))
+p5
+```
+
+Wykres 6. Wariant wykresu poprzedniego z dodanymi wartościami liczbowymi
+
+
+```{r, warning=F, message=F, fig.width=picWd, fig.height=picHt}
+#zz1 <- zz1 %>% filter ( week >= firstWeek  ) %>% as.data.frame
+
+p6 <- ggplot(zz1, aes(x=week, y=yy), color=farbe20) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4, color=farbe20) +
+ geom_point(size=.4, alpha=.5) +
+ geom_text(aes(label=sprintf("%.1f", yy)), vjust=-1.25, size=1.5) +
+ facet_wrap( ~name, scales = "fixed") +
+ xlab(label="nr tygodnia") +
+ ylab(label="%") +
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ scale_color_manual(name="Rok 2020: ", labels = c("% 2020/(średnia 2015--2015)"), values = c("yy"=farbe20 )  ) +
+ ggtitle(sprintf("Zgony wg województw* (jako %% średniej z lat 2015--2019 | tygodnie: %i--%i | %i tydzień zaczyna się %s)", 
+        firstWeek, lastWeek, lastWeek, lastO), 
+   subtitle=sprintf("*wg klasyfikacji NUTS stąd mazowieckie/stołeczne | %s", NIKW))
+p6
+```
+
+Wykres 7. Zgony ogółem według województw i dni tygodnia w roku `r lastY`
+jako % średniej z poprzednich 5 lat (`r sprintf("%i--%i", firstY, lastY)`) dla dwóch
+wybranych grup wiekowych 50+ oraz 60+. Zanim wykreślimy wykres trzeba przekształcić dane:
+
+```{r, warning=F, message=F}
+## grupa 60+ składa się z nast. grup 5-letnich
+over60 <- c ('70--74', '75--79', '80--84', '85--89', '90--')
+## to samo dal 50+
+over50 <- c ('50--54', '55--59', '60--64', '65--69', '70--74', '75--79', 
+             '80--84', '85--89', '90--')
+## wybieramy z ramki z co trzeba
+z6 <- z %>% filter ( sex == 'O'  & geo %in% nuts & age %in% over60) %>% as.data.frame
+z5 <- z %>% filter ( sex == 'O'  & geo %in% nuts & age %in% over50) %>% as.data.frame
+
+z60 <- z6 %>% filter ( year >= firstY  & year < lastY ) %>% as.data.frame
+z61 <- z6 %>% filter ( year == lastY ) %>% as.data.frame
+## sumujemy obie kategorie (średnia jest ok?)
+zz60 <- z60 %>% group_by(name,week) %>% 
+  summarise( year = 't19', age='60', 
+             vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+zz61 <- z61 %>% group_by(name,week) %>% summarise( year = 't20', age='60', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+
+## to samo dla 50+
+z50 <- z5 %>% filter ( year >= firstY  & year < lastY ) %>% as.data.frame
+z51 <- z5 %>% filter ( year == lastY ) %>% as.data.frame
+zz50 <- z50 %>% group_by(name,week) %>% 
+  summarise( year = 't19', age ='50', 
+  vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+zz51 <- z51 %>% group_by(name,week) %>% 
+  summarise( year = 't20', age ='50', vv = mean(value, na.rm=TRUE)) %>% as.data.frame
+## łączymy do kupy
+zz61 <- bind_rows(zz60, zz61, zz50, zz51)
+
+## przechodzimy na format szeroki celem podzielenia:-)
+zz61 <- zz61 %>% spread(year, vv)
+zz61$yy <- zz61$t20 / zz61$t19 * 100
+
+zz61 <- zz61 %>% filter ( week >= firstWeek  ) %>% as.data.frame
+```
+
+Wykres
+
+```{r, warning=F, message=F, fig.width=picWd, fig.height=picHt }
+p7 <- ggplot(zz61, aes(x=week, y=yy, color=age)) +
+ geom_smooth(method="loess", se=F, span=spanV, size=.4) +
+ geom_point(size=.4, alpha=.5) +
+ geom_text(aes(label=sprintf("%.1f", yy)), vjust=-1.25, size=1.5) +
+ facet_wrap( ~name, scales = "fixed") +
+ xlab(label="nr tygodnia") +
+ ylab(label="%") +
+ theme(plot.subtitle=element_text(size=9), legend.position="top")+
+ #scale_color_manual(name="Rok 2020: ", labels = c("% 2020/(średnia 2015--2015)"), values = c("yy"=farbe20 )  ) +
+ scale_color_manual(name="Wiek: ", labels = c("50 i więcej", "70 i więcej"), values = c("50"=farbe19, "60"=farbe20 )) +
+ ggtitle(sprintf("Zgony w 2020 (jako %% średniej z lat 2015--2019 | tygodnie: %i--%i | %i tydzień zaczyna się %s)",
+        firstWeek, lastWeek, lastWeek, lastO), 
+   subtitle=sprintf("*wg klasyfikacji NUTS stąd mazowieckie/stołeczne | %s", NIKW))
+p7
+```
+
+## Podsumowanie
+
+Do uzupełnienia
+
+
+<!--
+Local variables:
+ ispell-local-dictionary: "english"
+End:
+-->
